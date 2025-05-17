@@ -1,6 +1,5 @@
-mensaje =           list("1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111")
-LSFR_accumulator =  list("00011100000010001101011111110111010011111111101100110010111011111111110000010011101100101110000110001001000001101010011000011001")
-NSFR_accumulator =  list("10000001110001011110111010101100000010011111101001000111100001100100101110110000111010001000111101110001101110010111001001010110")
+from typing import List, Optional
+from collections import deque
 
 class Bit:
     def __init__(self, valor):
@@ -16,99 +15,143 @@ class Bit:
         return str(self.valor)
 
 
-def calcLSFR(accumulator):
-    s0 = Bit(accumulator[0])
-    s7 = Bit(accumulator[7])
-    s38 = Bit(accumulator[38])
-    s70 = Bit(accumulator[70])
-    s81 = Bit(accumulator[81])
-    s96 = Bit(accumulator[96])
-    return  str(s0 + s7 + s38 + s70 + s81 + s96)
+IV_STRING  = "0001110000001000110101111111011101001111111110110011001011101111111111000001001110110010111000011"  # 96 bits
+KEY_STRING = "10000001110001011110111010101100000010011111101001000111100001100100101110110000111010001000111101110001101110010111001001010110"  # 128 bits
 
-def calcNSFR(accumulator, carryLSFR):
-    s0 = Bit(carryLSFR)
-    b0 = Bit(accumulator[0])
-    b26 = Bit(accumulator[26])
-    b56 = Bit(accumulator[56])
-    b91 = Bit(accumulator[91])
-    b96 = Bit(accumulator[96])
-    b3 = Bit(accumulator[3])
-    b67 = Bit(accumulator[67])
-    b22 = Bit(accumulator[11])
-    b13 = Bit(accumulator[13])
-    b17 = Bit(accumulator[17])
-    b18 = Bit(accumulator[18])
-    b27 = Bit(accumulator[27])
-    b59 = Bit(accumulator[59])
-    b40 = Bit(accumulator[40])
-    b48 = Bit(accumulator[48])
-    b61 = Bit(accumulator[61])
-    b65 = Bit(accumulator[65])
-    b68 = Bit(accumulator[68])
-    b84 = Bit(accumulator[84])
-    b22 = Bit(accumulator[22])
-    b24 = Bit(accumulator[24])
-    b25 = Bit(accumulator[25])
-    b70 = Bit(accumulator[70])
-    b78 = Bit(accumulator[78])
-    b82 = Bit(accumulator[82])
-    b88 = Bit(accumulator[88])
-    b92 = Bit(accumulator[92])
-    b93 = Bit(accumulator[93])
-    b95 = Bit(accumulator[95])
+# Convertir a deque de Bits
+IV_bits  = deque(Bit(int(c)) for c in IV_STRING)
+KEY_bits = deque(Bit(int(c)) for c in KEY_STRING)
 
-    return str(s0 + b0 + b26 + b56 + b91 + b96 + b3*b67 + b22*b13 + b17*b18 + b27*b59 + b40*b48 + b61*b65 + b68*b84 + b22*b24*b25 + b70*b78*b82 + b88*b92*b93*b95)
+# LFSR: IV (96 bits) + 31 unos + un cero
+lsfr_acc = deque(IV_bits)
+lsfr_acc.extend([Bit(1)] * 31 + [Bit(0)])
+
+# NFSR: toda la clave
+nsfr_acc = deque(KEY_bits)
+
+# Generamos mensaje de prueba
+mensaje = [Bit(1)] * 1000
+
+# Inicializamos Acumulador
+A = deque([Bit(0)] * 64)
+
+# Inicializamos registro
+R = deque([Bit(0)] * 64)
 
 
-def LSFR():
-    carry = calcLSFR(LSFR_accumulator)
-    LSFR_accumulator.pop()
-    LSFR_accumulator.insert(0,carry)
-    return carry
+# Calculo de funcion f
+def fun_f(acc: deque[Bit]) -> Bit:
+    return (acc[0] + acc[7] + acc[38] + acc[70] + acc[81] + acc[96])
 
-def NSFR():
-    carry = calcNSFR(NSFR_accumulator,LSFR())
-    NSFR_accumulator.pop()
-    NSFR_accumulator.insert(0,carry)
-    return carry
+# Calculo de funcion g
+def fun_g(acc: deque[Bit]) -> Bit:
+    return (acc[26] + acc[56] + acc[91] + acc[96] + acc[3]*acc[67]
+            + acc[11]*acc[13] + acc[17]*acc[18] + acc[27]*acc[59]
+            + acc[40]*acc[48] + acc[61]*acc[65] + acc[68]*acc[84]
+            + acc[22]*acc[24]*acc[25] + acc[70]*acc[78]*acc[82]
+            + acc[88]*acc[92]*acc[93]*acc[95])
 
+# Calculo de funcion h
+def fun_h(s_acc: deque[Bit], b_acc: deque[Bit]) -> Bit:
+    return (b_acc[12]*s_acc[8] + s_acc[13]*s_acc[20]
+            + b_acc[95]*s_acc[42] + s_acc[60]*s_acc[79]
+            + b_acc[12]*b_acc[95]*s_acc[94])
+
+# Calculo de funcion y
+def fun_y(s_acc: deque[Bit], b_acc: deque[Bit], h: Bit) -> Bit:
+    return (s_acc[93] + b_acc[2] + b_acc[15] + b_acc[36]
+            + b_acc[45] + b_acc[64] + b_acc[73] + b_acc[89] + h)
+
+# Actualizacion LSFR
+def step_lsfr(acc: deque[Bit], y: Bit, key_bit: Optional[Bit] = None) -> Bit:
+    s0 = acc.popleft()
+    carry = fun_f(acc) + s0 + (y if key_bit is None else key_bit)
+    acc.append(carry)
+    return s0
+
+# Actualizacion NSFR
+def step_nsfr(acc: deque[Bit], s_t: Bit, y: Bit, key_bit: Optional[Bit] = None) -> Bit:
+    b0 = acc.popleft()
+    carry = b0 + fun_g(acc) +  s_t
+    if key_bit is None: carry = carry + y
+    acc.append(carry)
+    return b0
+
+# Ciclo de reloj
+def clock_cycle(lsfr: deque[Bit], nsfr: deque[Bit], key_bit: Optional[Bit] = None) -> Bit:
+    # Calculo h_t e y_t sobre estado actual
+    h_t = fun_h(lsfr, nsfr)
+    y_t = fun_y(lsfr, nsfr, h_t)
+
+    # Actualizo LSFR
+    s_t = step_lsfr(lsfr, y_t, key_bit)
+
+    # Actualizo NSFR
+    step_nsfr(nsfr, s_t, y_t, key_bit)
+
+    return y_t
 
 
 def main():
 
+    # Calentamiento: 256 ciclos descartando salida
+    for _ in range(256):
+        clock_cycle(lsfr_acc, nsfr_acc)
 
-    print("ENCRIPTACION")
-    print("\n")
+    # Insertamos bits key (clave)
+    for i, key_bit in enumerate(KEY_bits):
+        y = clock_cycle(lsfr_acc, nsfr_acc, key_bit=key_bit)
+        if i < 64: A[i] = y
+        else: R[i - 64] = y
 
-    encript = list("")
-    for i in range(100):
-        bit = NSFR()
-        print(bit,end="")
-        encript.append(bit)
-        if (i+1)%10 == 0:
-            print("")
+    print("\nMENSAJE")
+    for i, m in enumerate(mensaje, 1): print(m, end="")
 
-    print("\n\n")
-    print("MENSAJE")
-    print("\n")
+    print("\n\nMENSAJE ENCRIPTADO")
+    q1 = q0 = 0
 
-    for i in range(100):
-        print(mensaje[i],end="")
-        if (i+1)%10 == 0:
-            print("")
+    # Recorremos bit a bit, actualizamos A y R en cada iteración
+    for i, m in enumerate(mensaje, 1):
+        # Generar siguiente bit de keystream
+        y = clock_cycle(lsfr_acc, nsfr_acc)
+        # Cifrar el bit
+        c = m + y
+        # Actualizar contadores
+        if c.valor == 1: q1 += 1
+        else: q0 += 1
+        # Imprimir bit
+        print(c, end="")
 
-    print("\n\n")
-    print("MENSAJE ENCRIPTADO")
-    print("\n")
+        # Actualizar R con y
+        R.popleft()
+        R.append(y)
+
+        # Actualizar A con y + c
+        A.popleft()
+        A.append(y + c)
 
 
-    for i in range(100):
-        print(str(Bit(mensaje[i])+Bit(encript[i])),end="")
-        if (i+1)%10 == 0:
-            print("")
+    print("\nCantidad\n")
+    print(f"Cantidad 0: {q0}")
+    print(f"Cantidad 1: {q1}")
+    print(f"Chance of 0: {q0*100/(q0+q1)}")
+    print(f"Chance of 1: {q1*100/(q0+q1)}")
 
+    # 64 ciclos más para actualizar A y R con y_t
+    for _ in range(64):
+        y = clock_cycle(lsfr_acc, nsfr_acc)
+        # desplazamos y añadimos al final
+        A.popleft(); A.append(y)
+        R.popleft(); R.append(y)
+
+    # 5) Extracción del tag de autenticación: los 64 bits de R
+    tag = "".join(str(b) for b in R)
+    print("\nTAG (64 bits):", tag)
 
 
 
 if __name__ == "__main__":
     main()
+
+
+
